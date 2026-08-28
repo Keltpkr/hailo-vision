@@ -50,14 +50,15 @@ def enroll(jpeg: bytes, name: str, camera: int, embedding: list[float] | None = 
 
 def match(embedding: list[float], threshold: float = 0.2) -> dict[str, Any] | None:
     vector = np.asarray(embedding, dtype=np.float32)
+    best: tuple[float, dict[str, Any]] | None = None
     for person in _read():
         stored = person.get("embedding")
         if not stored:
             continue
         score = float(np.dot(vector, np.asarray(stored, dtype=np.float32)))
-        if score >= threshold:
-            return person
-    return None
+        if score >= threshold and (best is None or score > best[0]):
+            best = (score, person)
+    return best[1] if best else None
 
 
 def rename(person_id: str, name: str) -> dict[str, Any] | None:

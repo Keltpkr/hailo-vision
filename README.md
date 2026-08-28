@@ -1,6 +1,6 @@
 # Hailo Vision API
 
-Version : `1.4.4`
+Version : `1.5.0`
 
 API HTTP minimale pour exécuter un modèle `.hef` sur un accélérateur Hailo.
 L'inférence est strictement déléguée à HailoRT : si le runtime ou le Hailo

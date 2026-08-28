@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import re
 import signal
 import subprocess
 import threading
@@ -10,6 +9,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 
@@ -38,7 +38,7 @@ face_recognizer_lock = threading.Lock()
 detection_results: dict[str, dict[str, Any]] = {}
 detection_lock = threading.Lock()
 
-app = FastAPI(title="Hailo Camera Viewer", version="1.4.4")
+app = FastAPI(title="Hailo Camera Viewer", version="1.5.0")
 _cpu_previous: tuple[int, int] | None = None
 
 
@@ -132,34 +132,33 @@ class CameraCapture:
                 for face in faces:
                     x1, y1, x2, y2 = face["box"]
                     person = None
+                    face_track = None
                     for track in self.face_tracks:
                         tx1, ty1, tx2, ty2 = track["box"]
                         overlap = max(0, min(x2, tx2) - max(x1, tx1)) * max(0, min(y2, ty2) - max(y1, ty1))
                         union = (x2 - x1) * (y2 - y1) + (tx2 - tx1) * (ty2 - ty1) - overlap
                         if union and overlap / union > 0.2:
-                            person = get(track["person_id"])
+                            face_track = track
+                            person = get(track["person_id"]) if track["person_id"] else None
                             track.update(box=face["box"], seen=now)
                             break
-                    if person is None:
-                        person = match(face["embedding"])
-                    if person is None and len(faces) == 1 and self.last_auto_profile:
-                        person_id, created_at = self.last_auto_profile
-                        if now - created_at < 15:
-                            person = get(person_id)
-                    if person is None and len(faces) == 1:
-                        unnamed = [item for item in list_people() if re.fullmatch(r"Visage [0-9]+", item["name"])]
-                        if len(unnamed) == 1:
-                            person = get(unnamed[0]["id"])
-                    if person is None:
-                        person = enroll(
-                            face["image"],
-                            f"Visage {len(list_people()) + 1}",
-                            int(self.camera),
-                            face["embedding"],
-                        )
+                    if face_track is None:
+                        face_track = {"person_id": None, "box": face["box"], "seen": now, "samples": [face["embedding"]], "image": face["image"]}
+                        self.face_tracks.append(face_track)
+                    elif face_track["person_id"] is None:
+                        face_track["samples"].append(face["embedding"])
+                        face_track["image"] = face["image"]
+                    if person is None and len(face_track["samples"]) >= 3:
+                        average = np.mean(np.asarray(face_track["samples"], dtype=np.float32), axis=0)
+                        average /= max(np.linalg.norm(average), 1e-12)
+                        face_track["embedding"] = average.tolist()
+                        person = match(face_track["embedding"])
+                    if person is None and len(face_track["samples"]) >= 3:
+                        person = enroll(face_track["image"], f"Visage {len(list_people()) + 1}", int(self.camera), face_track["embedding"])
                         self.last_auto_profile = (person["id"], now)
-                    if not any(track["person_id"] == person["id"] for track in self.face_tracks):
-                        self.face_tracks.append({"person_id": person["id"], "box": face["box"], "seen": now})
+                    if person is None:
+                        continue
+                    face_track["person_id"] = person["id"]
                     named_faces.append({
                         "label": "person",
                         "name": person["name"],
