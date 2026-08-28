@@ -17,19 +17,15 @@ from .person_detector import PersonDetector
 
 CAMERAS = {
     0: os.getenv("CAMERA_0", "0"),
-    1: os.getenv("CAMERA_1", "1"),
 }
 WIDTH = int(os.getenv("CAMERA_WIDTH", "1920"))
 HEIGHT = int(os.getenv("CAMERA_HEIGHT", "1080"))
 FPS = int(os.getenv("CAMERA_FPS", "5"))
-IMX708_WIDTH = int(os.getenv("CAMERA_1_WIDTH", "640"))
-IMX708_HEIGHT = int(os.getenv("CAMERA_1_HEIGHT", "480"))
 USE_SUDO = os.getenv("CAMERA_USE_SUDO", "1") == "1"
 RESOLUTIONS = ("640x480", "1280x720", "1920x1080")
 FPS_OPTIONS = (5, 10, 15, 20, 30)
 settings = {
     "0": {"resolution": f"{WIDTH}x{HEIGHT}", "fps": FPS},
-    "1": {"resolution": f"{IMX708_WIDTH}x{IMX708_HEIGHT}", "fps": FPS},
 }
 
 detector: PersonDetector | None = None
@@ -37,7 +33,7 @@ detector_lock = threading.Lock()
 detection_results: dict[str, dict[str, Any]] = {}
 detection_lock = threading.Lock()
 
-app = FastAPI(title="Hailo Camera Viewer", version="1.2.6")
+app = FastAPI(title="Hailo Camera Viewer", version="1.3.0")
 _cpu_previous: tuple[int, int] | None = None
 
 
@@ -233,7 +229,6 @@ def index() -> str:
 <style>body{font-family:sans-serif;background:#111;color:#eee;margin:2rem}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:1rem}section{background:#222;padding:1rem;border-radius:8px}.camera-view{position:relative;background:#000}.camera-view img{width:100%;height:auto;display:block}.camera-view canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}.rotate-180{transform:rotate(180deg)}#cpu{color:#8f8;font-weight:bold}.status{font-size:1.2rem}.alert{color:#ff7070;font-weight:bold}</style>
 </head><body><h1>Caméras du Raspberry Pi</h1><p>Occupation CPU : <span id="cpu">--</span> %</p><main>
 <section><h2>Caméra 0 — OV5647</h2><label>Résolution <select data-camera="0" class="resolution"></select></label> <label>FPS <select data-camera="0" class="fps"></select></label><p class="status">Personnes : <span id="count-0">0</span> <span id="alert-0"></span></p><div class="camera-view"><img src="/camera/0" alt="Flux caméra 0"><canvas id="canvas-0"></canvas></div><button onclick="enrollPerson(0)">Enregistrer une personne depuis la caméra 0</button></section>
-<section><h2>Caméra 1 — IMX708</h2><label>Résolution <select data-camera="1" class="resolution"></select></label> <label>FPS <select data-camera="1" class="fps"></select></label><p class="status">Personnes : <span id="count-1">0</span> <span id="alert-1"></span></p><div class="camera-view"><img class="rotate-180" src="/camera/1" alt="Flux caméra 1"><canvas class="rotate-180" id="canvas-1"></canvas></div><button onclick="enrollPerson(1)">Enregistrer une personne depuis la caméra 1</button></section>
 </main><script>
 const resolutions = ["640x480", "1280x720", "1920x1080"];
 const fpsOptions = [5, 10, 15, 20, 30];
@@ -253,7 +248,7 @@ async function refreshCpu() {
   const current = await fetch('/health').then(r => r.json());
   document.getElementById('cpu').textContent = current.cpu_percent;
 }
-let previousCounts = [0, 0];
+let previousCounts = [0];
 async function refreshDetections(camera) {
   const result = await fetch('/detections/' + camera).then(r => r.json());
   document.getElementById('count-' + camera).textContent = result.person_count;
@@ -289,7 +284,7 @@ async function enrollPerson(camera) {
 document.querySelectorAll('select').forEach(select => select.addEventListener('change', changeCamera));
 init();
 setInterval(refreshCpu, 2000);
-setInterval(() => { refreshDetections(0); refreshDetections(1); }, 500);
+setInterval(() => { refreshDetections(0); }, 500);
 </script></body></html>"""
 
 
