@@ -33,7 +33,7 @@ detector_lock = threading.Lock()
 detection_results: dict[str, dict[str, Any]] = {}
 detection_lock = threading.Lock()
 
-app = FastAPI(title="Hailo Camera Viewer", version="1.1.0")
+app = FastAPI(title="Hailo Camera Viewer", version="1.1.1")
 _cpu_previous: tuple[int, int] | None = None
 
 
