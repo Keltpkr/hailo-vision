@@ -38,7 +38,7 @@ face_recognizer_lock = threading.Lock()
 detection_results: dict[str, dict[str, Any]] = {}
 detection_lock = threading.Lock()
 
-app = FastAPI(title="Hailo Camera Viewer", version="1.6.6")
+app = FastAPI(title="Hailo Camera Viewer", version="1.6.7")
 _cpu_previous: tuple[int, int] | None = None
 
 
@@ -125,7 +125,8 @@ class CameraCapture:
                     with face_recognizer_lock:
                         if face_recognizer is None:
                             face_recognizer = FaceRecognizer()
-                faces = face_recognizer.faces(frame)
+                with face_recognizer_lock:
+                    faces = face_recognizer.faces(frame)
                 named_faces = []
                 now = time.monotonic()
                 self.face_tracks = [track for track in self.face_tracks if now - track["seen"] < 3]
@@ -320,7 +321,8 @@ def enrollment_worker(camera_id: int, name: str, capture: CameraCapture, state: 
                     face_recognizer = FaceRecognizer()
         assert face_recognizer is not None
         for frame in frames:
-            faces = face_recognizer.faces(frame)
+            with face_recognizer_lock:
+                faces = face_recognizer.faces(frame)
             if not faces:
                 continue
             face = max(faces, key=lambda item: (item["box"][2] - item["box"][0]) * (item["box"][3] - item["box"][1]))
