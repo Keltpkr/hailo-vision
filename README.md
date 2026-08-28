@@ -1,0 +1,46 @@
+# Hailo Vision API
+
+Version : `1.0.1`
+
+API HTTP minimale pour exécuter un modèle `.hef` sur un accélérateur Hailo.
+L'inférence est strictement déléguée à HailoRT : si le runtime ou le Hailo
+n'est pas disponible, l'application échoue au démarrage (aucun fallback CPU).
+
+## Installation sur la machine Hailo
+
+Installer d'abord le driver Hailo et le paquet `hailort` fourni pour la version
+de Python utilisée, puis :
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+export HEF_PATH=/opt/models/yolov8s.hef
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+Le fichier HEF doit être compilé pour la puce installée (Hailo-8/8L/10H).
+
+## API
+
+```bash
+curl http://localhost:8000/health
+curl -X POST http://localhost:8000/v1/infer \
+  -F image=@image.jpg
+```
+
+La réponse contient les sorties brutes nommées du modèle :
+
+```json
+{"outputs":{"yolov8_nms": [[...]]}}
+```
+
+Le décodage des boîtes et des classes dépend du HEF choisi ; il est volontairement
+laissé à l'appelant afin que l'API reste compatible avec plusieurs modèles.
+
+## Limite importante
+
+Le CPU reçoit la requête, décode JPEG/PNG et prépare le tenseur d'entrée. Il ne
+réalise pas l'inférence. Pour supprimer aussi ce prétraitement CPU, il faut
+fournir des tenseurs déjà préparés ou utiliser une pipeline caméra/GStreamer
+avec prétraitement matériel.
