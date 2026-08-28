@@ -22,12 +22,14 @@ CAMERAS = {
 WIDTH = int(os.getenv("CAMERA_WIDTH", "1920"))
 HEIGHT = int(os.getenv("CAMERA_HEIGHT", "1080"))
 FPS = int(os.getenv("CAMERA_FPS", "5"))
+IMX708_WIDTH = int(os.getenv("CAMERA_1_WIDTH", "1280"))
+IMX708_HEIGHT = int(os.getenv("CAMERA_1_HEIGHT", "720"))
 USE_SUDO = os.getenv("CAMERA_USE_SUDO", "1") == "1"
 RESOLUTIONS = ("640x480", "1280x720", "1920x1080")
 FPS_OPTIONS = (5, 10, 15, 20, 30)
 settings = {
     "0": {"resolution": f"{WIDTH}x{HEIGHT}", "fps": FPS},
-    "1": {"resolution": f"{WIDTH}x{HEIGHT}", "fps": FPS},
+    "1": {"resolution": f"{IMX708_WIDTH}x{IMX708_HEIGHT}", "fps": FPS},
 }
 
 detector: PersonDetector | None = None
