@@ -5,6 +5,7 @@ __pycache__/
 *.hef
 *.log
 test.jpg
+data/people/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/

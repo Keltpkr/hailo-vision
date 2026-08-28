@@ -5,11 +5,13 @@ import signal
 import subprocess
 import threading
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 
+from .people_store import enroll, list_people, rename
 from .person_detector import PersonDetector
 
 
@@ -33,7 +35,7 @@ detector_lock = threading.Lock()
 detection_results: dict[str, dict[str, Any]] = {}
 detection_lock = threading.Lock()
 
-app = FastAPI(title="Hailo Camera Viewer", version="1.1.1")
+app = FastAPI(title="Hailo Camera Viewer", version="1.2.0")
 _cpu_previous: tuple[int, int] | None = None
 
 
@@ -226,8 +228,8 @@ def index() -> str:
 <title>Caméras du Raspberry Pi</title>
 <style>body{font-family:sans-serif;background:#111;color:#eee;margin:2rem}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:1rem}section{background:#222;padding:1rem;border-radius:8px}.camera-view{position:relative;background:#000}.camera-view img{width:100%;height:auto;display:block}.camera-view canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}.rotate-180{transform:rotate(180deg)}#cpu{color:#8f8;font-weight:bold}.status{font-size:1.2rem}.alert{color:#ff7070;font-weight:bold}</style>
 </head><body><h1>Caméras du Raspberry Pi</h1><p>Occupation CPU : <span id="cpu">--</span> %</p><main>
-<section><h2>Caméra 0 — OV5647</h2><label>Résolution <select data-camera="0" class="resolution"></select></label> <label>FPS <select data-camera="0" class="fps"></select></label><p class="status">Personnes : <span id="count-0">0</span> <span id="alert-0"></span></p><div class="camera-view"><img src="/camera/0" alt="Flux caméra 0"><canvas id="canvas-0"></canvas></div></section>
-<section><h2>Caméra 1 — IMX708</h2><label>Résolution <select data-camera="1" class="resolution"></select></label> <label>FPS <select data-camera="1" class="fps"></select></label><p class="status">Personnes : <span id="count-1">0</span> <span id="alert-1"></span></p><div class="camera-view"><img class="rotate-180" src="/camera/1" alt="Flux caméra 1"><canvas class="rotate-180" id="canvas-1"></canvas></div></section>
+<section><h2>Caméra 0 — OV5647</h2><label>Résolution <select data-camera="0" class="resolution"></select></label> <label>FPS <select data-camera="0" class="fps"></select></label><p class="status">Personnes : <span id="count-0">0</span> <span id="alert-0"></span></p><div class="camera-view"><img src="/camera/0" alt="Flux caméra 0"><canvas id="canvas-0"></canvas></div><button onclick="enrollPerson(0)">Enregistrer une personne depuis la caméra 0</button></section>
+<section><h2>Caméra 1 — IMX708</h2><label>Résolution <select data-camera="1" class="resolution"></select></label> <label>FPS <select data-camera="1" class="fps"></select></label><p class="status">Personnes : <span id="count-1">0</span> <span id="alert-1"></span></p><div class="camera-view"><img class="rotate-180" src="/camera/1" alt="Flux caméra 1"><canvas class="rotate-180" id="canvas-1"></canvas></div><button onclick="enrollPerson(1)">Enregistrer une personne depuis la caméra 1</button></section>
 </main><script>
 const resolutions = ["640x480", "1280x720", "1920x1080"];
 const fpsOptions = [5, 10, 15, 20, 30];
@@ -273,6 +275,13 @@ async function changeCamera(event) {
   await fetch('/settings/' + camera + '?resolution=' + encodeURIComponent(resolution) + '&fps=' + fps, {method: 'POST'});
   document.querySelector('img[src^="/camera/' + camera + '"]').src = '/camera/' + camera + '?t=' + Date.now();
 }
+async function enrollPerson(camera) {
+  const name = prompt('Nom de la personne :', 'Personne 1');
+  if (name === null) return;
+  const response = await fetch('/people/enroll/' + camera + '?name=' + encodeURIComponent(name), {method: 'POST'});
+  const result = await response.json();
+  alert(response.ok ? 'Image de référence sauvegardée pour ' + result.name : result.detail);
+}
 document.querySelectorAll('select').forEach(select => select.addEventListener('change', changeCamera));
 init();
 setInterval(refreshCpu, 2000);
@@ -297,6 +306,41 @@ def detections(camera_id: int) -> dict[str, Any]:
             "detections": [],
             "status": "starting",
         })
+
+
+@app.get("/people")
+def people() -> list[dict[str, Any]]:
+    return list_people()
+
+
+@app.post("/people/enroll/{camera_id}")
+def enroll_person(camera_id: int, name: str = "Personne 1") -> dict[str, Any]:
+    if camera_id not in CAMERAS:
+        raise HTTPException(404, "Caméra inconnue")
+    with captures_lock:
+        capture = captures.get(CAMERAS[camera_id])
+    if capture is None or capture.latest is None:
+        raise HTTPException(409, "Le flux caméra doit être actif")
+    return enroll(capture.latest, name, camera_id)
+
+
+@app.patch("/people/{person_id}")
+def rename_person(person_id: str, name: str) -> dict[str, Any]:
+    person = rename(person_id, name)
+    if person is None:
+        raise HTTPException(404, "Personne inconnue")
+    return person
+
+
+@app.get("/people/{person_id}/image")
+def person_image(person_id: str) -> FileResponse:
+    person = next((item for item in list_people() if item["id"] == person_id), None)
+    if person is None:
+        raise HTTPException(404, "Personne inconnue")
+    image = Path(__file__).resolve().parent.parent / "data" / "people" / person["image"]
+    if not image.is_file():
+        raise HTTPException(404, "Image de référence introuvable")
+    return FileResponse(image, media_type="image/jpeg")
 
 
 @app.post("/settings/{camera_id}")

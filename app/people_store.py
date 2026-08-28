@@ -1,0 +1,52 @@
+from __future__ import annotations
+
+import json
+import re
+import secrets
+from pathlib import Path
+from typing import Any
+
+
+DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "people"
+INDEX = DATA_DIR / "people.json"
+NAME_RE = re.compile(r"[^A-Za-zÀ-ÿ0-9 _-]+")
+
+
+def _read() -> list[dict[str, Any]]:
+    if not INDEX.exists():
+        return []
+    return json.loads(INDEX.read_text(encoding="utf-8"))
+
+
+def _write(people: list[dict[str, Any]]) -> None:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    temporary = INDEX.with_suffix(".tmp")
+    temporary.write_text(json.dumps(people, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporary.replace(INDEX)
+
+
+def list_people() -> list[dict[str, Any]]:
+    return _read()
+
+
+def enroll(jpeg: bytes, name: str, camera: int) -> dict[str, Any]:
+    people = _read()
+    person_id = secrets.token_hex(8)
+    safe_name = NAME_RE.sub("", name).strip() or f"Personne {len(people) + 1}"
+    image_name = f"{person_id}.jpg"
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    (DATA_DIR / image_name).write_bytes(jpeg)
+    person = {"id": person_id, "name": safe_name, "camera": camera, "image": image_name}
+    people.append(person)
+    _write(people)
+    return person
+
+
+def rename(person_id: str, name: str) -> dict[str, Any] | None:
+    people = _read()
+    for person in people:
+        if person["id"] == person_id:
+            person["name"] = NAME_RE.sub("", name).strip() or person["name"]
+            _write(people)
+            return person
+    return None

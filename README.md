@@ -1,6 +1,6 @@
 # Hailo Vision API
 
-Version : `1.1.1`
+Version : `1.2.0`
 
 API HTTP minimale pour exécuter un modèle `.hef` sur un accélérateur Hailo.
 L'inférence est strictement déléguée à HailoRT : si le runtime ou le Hailo
@@ -54,6 +54,11 @@ compteur, rectangles et alerte à l'apparition. Les résultats sont disponibles
 sur `/detections/0` et `/detections/1`. Le modèle par défaut est
 `/usr/local/hailo/resources/models/hailo8/yolov8m.hef` et peut être remplacé
 avec `HEF_PATH`.
+
+L’enrôlement live est disponible avec les boutons de la page. Une image JPEG
+de référence est conservée localement dans `data/people/`; elle peut être
+consultée via `/people/{id}/image` et le nom peut être modifié avec
+`PATCH /people/{id}`.
 
 ## Limite importante
 
