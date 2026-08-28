@@ -32,6 +32,8 @@ def camera_command(camera: str) -> list[str]:
         "--timeout", "0",
         "--output", "-",
         "--nopreview",
+        "--hflip",
+        "--vflip",
     ]
     return (["sudo", "-n"] if USE_SUDO else []) + command
 
