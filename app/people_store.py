@@ -48,7 +48,7 @@ def enroll(jpeg: bytes, name: str, camera: int, embedding: list[float] | None = 
     return person
 
 
-def match(embedding: list[float], threshold: float = 0.3) -> dict[str, Any] | None:
+def match(embedding: list[float], threshold: float = 0.2) -> dict[str, Any] | None:
     vector = np.asarray(embedding, dtype=np.float32)
     for person in _read():
         stored = person.get("embedding")

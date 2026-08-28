@@ -37,7 +37,7 @@ face_recognizer_lock = threading.Lock()
 detection_results: dict[str, dict[str, Any]] = {}
 detection_lock = threading.Lock()
 
-app = FastAPI(title="Hailo Camera Viewer", version="1.4.1")
+app = FastAPI(title="Hailo Camera Viewer", version="1.4.2")
 _cpu_previous: tuple[int, int] | None = None
 
 
@@ -92,6 +92,7 @@ class CameraCapture:
         self.process: subprocess.Popen[bytes] | None = None
         self.stop_event = threading.Event()
         self.face_tracks: list[dict[str, Any]] = []
+        self.last_auto_profile: tuple[str, float] | None = None
         self.thread = threading.Thread(target=self._read, daemon=True)
         self.detection_thread = threading.Thread(target=self._detect, daemon=True)
         self.thread.start()
@@ -140,6 +141,10 @@ class CameraCapture:
                             break
                     if person is None:
                         person = match(face["embedding"])
+                    if person is None and len(faces) == 1 and self.last_auto_profile:
+                        person_id, created_at = self.last_auto_profile
+                        if now - created_at < 15:
+                            person = get(person_id)
                     if person is None:
                         person = enroll(
                             face["image"],
@@ -147,6 +152,7 @@ class CameraCapture:
                             int(self.camera),
                             face["embedding"],
                         )
+                        self.last_auto_profile = (person["id"], now)
                     if not any(track["person_id"] == person["id"] for track in self.face_tracks):
                         self.face_tracks.append({"person_id": person["id"], "box": face["box"], "seen": now})
                     named_faces.append({
