@@ -37,7 +37,7 @@ detector_lock = threading.Lock()
 detection_results: dict[str, dict[str, Any]] = {}
 detection_lock = threading.Lock()
 
-app = FastAPI(title="Hailo Camera Viewer", version="1.2.1")
+app = FastAPI(title="Hailo Camera Viewer", version="1.2.3")
 _cpu_previous: tuple[int, int] | None = None
 
 
@@ -217,7 +217,9 @@ captures_lock = threading.Lock()
 def jpeg_stream(camera: str) -> Iterator[bytes]:
     with captures_lock:
         capture = captures.get(camera)
-        if capture is None:
+        if capture is None or not capture.thread.is_alive():
+            if capture is not None:
+                capture.stop()
             capture = CameraCapture(camera, settings[camera].copy())
             captures[camera] = capture
     yield from capture.frames()
