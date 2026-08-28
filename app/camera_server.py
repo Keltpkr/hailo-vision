@@ -38,7 +38,7 @@ face_recognizer_lock = threading.Lock()
 detection_results: dict[str, dict[str, Any]] = {}
 detection_lock = threading.Lock()
 
-app = FastAPI(title="Hailo Camera Viewer", version="1.5.0")
+app = FastAPI(title="Hailo Camera Viewer", version="1.5.1")
 _cpu_previous: tuple[int, int] | None = None
 
 
@@ -153,6 +153,10 @@ class CameraCapture:
                         average /= max(np.linalg.norm(average), 1e-12)
                         face_track["embedding"] = average.tolist()
                         person = match(face_track["embedding"])
+                    if person is None and len(faces) == 1:
+                        named = [item for item in list_people() if not item["name"].startswith("Visage ")]
+                        if len(named) == 1:
+                            person = get(named[0]["id"])
                     if person is None and len(face_track["samples"]) >= 3:
                         person = enroll(face_track["image"], f"Visage {len(list_people()) + 1}", int(self.camera), face_track["embedding"])
                         self.last_auto_profile = (person["id"], now)
