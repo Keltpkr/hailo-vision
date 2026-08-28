@@ -33,6 +33,8 @@ def camera_command(camera: str) -> list[str]:
         "--output", "-",
         "--nopreview",
     ]
+    if camera == "1":
+        command += ["--autofocus-mode", "continuous", "--autofocus-range", "normal"]
     return (["sudo", "-n"] if USE_SUDO else []) + command
 
 
