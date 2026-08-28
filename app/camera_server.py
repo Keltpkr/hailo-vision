@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import signal
 import subprocess
 import threading
@@ -37,7 +38,7 @@ face_recognizer_lock = threading.Lock()
 detection_results: dict[str, dict[str, Any]] = {}
 detection_lock = threading.Lock()
 
-app = FastAPI(title="Hailo Camera Viewer", version="1.4.3")
+app = FastAPI(title="Hailo Camera Viewer", version="1.4.4")
 _cpu_previous: tuple[int, int] | None = None
 
 
@@ -145,6 +146,10 @@ class CameraCapture:
                         person_id, created_at = self.last_auto_profile
                         if now - created_at < 15:
                             person = get(person_id)
+                    if person is None and len(faces) == 1:
+                        unnamed = [item for item in list_people() if re.fullmatch(r"Visage [0-9]+", item["name"])]
+                        if len(unnamed) == 1:
+                            person = get(unnamed[0]["id"])
                     if person is None:
                         person = enroll(
                             face["image"],
