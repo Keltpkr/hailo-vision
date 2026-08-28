@@ -22,8 +22,8 @@ CAMERAS = {
 WIDTH = int(os.getenv("CAMERA_WIDTH", "1920"))
 HEIGHT = int(os.getenv("CAMERA_HEIGHT", "1080"))
 FPS = int(os.getenv("CAMERA_FPS", "5"))
-IMX708_WIDTH = int(os.getenv("CAMERA_1_WIDTH", "1280"))
-IMX708_HEIGHT = int(os.getenv("CAMERA_1_HEIGHT", "720"))
+IMX708_WIDTH = int(os.getenv("CAMERA_1_WIDTH", "640"))
+IMX708_HEIGHT = int(os.getenv("CAMERA_1_HEIGHT", "480"))
 USE_SUDO = os.getenv("CAMERA_USE_SUDO", "1") == "1"
 RESOLUTIONS = ("640x480", "1280x720", "1920x1080")
 FPS_OPTIONS = (5, 10, 15, 20, 30)
@@ -37,7 +37,7 @@ detector_lock = threading.Lock()
 detection_results: dict[str, dict[str, Any]] = {}
 detection_lock = threading.Lock()
 
-app = FastAPI(title="Hailo Camera Viewer", version="1.2.5")
+app = FastAPI(title="Hailo Camera Viewer", version="1.2.6")
 _cpu_previous: tuple[int, int] | None = None
 
 
