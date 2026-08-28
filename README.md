@@ -38,6 +38,17 @@ La réponse contient les sorties brutes nommées du modèle :
 Le décodage des boîtes et des classes dépend du HEF choisi ; il est volontairement
 laissé à l'appelant afin que l'API reste compatible avec plusieurs modèles.
 
+## Visualisation des deux caméras
+
+```bash
+CAMERA_USE_SUDO=1 .venv/bin/python -m uvicorn app.camera_server:app \
+  --host 192.168.1.44 --port 8090
+```
+
+Ouvrir ensuite [http://192.168.1.44:8090](http://192.168.1.44:8090) depuis un
+appareil du réseau local. La page affiche les flux MJPEG des caméras 0 et 1.
+Le serveur n'écoute que sur l'adresse LAN du Pi.
+
 ## Limite importante
 
 Le CPU reçoit la requête, décode JPEG/PNG et prépare le tenseur d'entrée. Il ne
