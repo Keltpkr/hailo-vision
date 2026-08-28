@@ -55,9 +55,9 @@ sur `/detections/0` et `/detections/1`. Le modèle par défaut est
 `/usr/local/hailo/resources/models/hailo8/yolov8m.hef` et peut être remplacé
 avec `HEF_PATH`.
 
-Le serveur utilise uniquement l’OV5647, réglée par défaut en 1296×972 (mode
-natif 4:3 à champ de vision élargi) à 5 FPS. Le 2592×1944 reste disponible
-mais nécessite davantage de mémoire DMA que l’environnement actuel ne fournit.
+Le serveur utilise uniquement l’OV5647, réglée par défaut en 2592×1944 (mode
+natif 4:3) à 5 FPS. Le 1296×972 reste disponible si une consommation DMA
+réduite est nécessaire.
 L’IMX708 est désactivée et n’est plus affichée dans la page. L’enrôlement
 live est autorisé uniquement lorsqu’au moins une personne est détectée ; une
 détection sans correspondance est affichée comme `Personne non identifiée`.

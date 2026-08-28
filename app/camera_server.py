@@ -21,8 +21,8 @@ from .person_detector import PersonDetector
 CAMERAS = {
     0: os.getenv("CAMERA_0", "0"),
 }
-HEIGHT = int(os.getenv("CAMERA_HEIGHT", "972"))
-WIDTH = int(os.getenv("CAMERA_WIDTH", "1296"))
+HEIGHT = int(os.getenv("CAMERA_HEIGHT", "1944"))
+WIDTH = int(os.getenv("CAMERA_WIDTH", "2592"))
 FPS = int(os.getenv("CAMERA_FPS", "5"))
 USE_SUDO = os.getenv("CAMERA_USE_SUDO", "1") == "1"
 RESOLUTIONS = ("640x480", "1296x972", "1920x1440", "2592x1944")
@@ -38,7 +38,7 @@ face_recognizer_lock = threading.Lock()
 detection_results: dict[str, dict[str, Any]] = {}
 detection_lock = threading.Lock()
 
-app = FastAPI(title="Hailo Camera Viewer", version="1.6.4")
+app = FastAPI(title="Hailo Camera Viewer", version="1.6.5")
 _cpu_previous: tuple[int, int] | None = None
 
 
