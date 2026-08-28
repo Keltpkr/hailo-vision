@@ -18,7 +18,7 @@ HEIGHT = int(os.getenv("CAMERA_HEIGHT", "480"))
 FPS = int(os.getenv("CAMERA_FPS", "10"))
 USE_SUDO = os.getenv("CAMERA_USE_SUDO", "1") == "1"
 
-app = FastAPI(title="Hailo Camera Viewer", version="1.0.6")
+app = FastAPI(title="Hailo Camera Viewer", version="1.0.7")
 
 
 def camera_command(camera: str) -> list[str]:
@@ -117,7 +117,7 @@ def index() -> str:
 <title>Caméras du Raspberry Pi</title>
 <style>body{font-family:sans-serif;background:#111;color:#eee;margin:2rem}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:1rem}section{background:#222;padding:1rem;border-radius:8px}img{width:100%;height:auto;background:#000;display:block}.rotate-180{transform:rotate(180deg)}</style>
 </head><body><h1>Caméras du Raspberry Pi</h1><main>
-<section><h2>Caméra 0 — OV5647</h2><img class="rotate-180" src="/camera/0" alt="Flux caméra 0"></section>
+<section><h2>Caméra 0 — OV5647</h2><img src="/camera/0" alt="Flux caméra 0"></section>
 <section><h2>Caméra 1 — IMX708</h2><img class="rotate-180" src="/camera/1" alt="Flux caméra 1"></section>
 </main></body></html>"""
 
