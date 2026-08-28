@@ -5,9 +5,12 @@ import signal
 import subprocess
 import threading
 from collections.abc import Iterator
+from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
+
+from .person_detector import PersonDetector
 
 
 CAMERAS = {
@@ -25,7 +28,12 @@ settings = {
     "1": {"resolution": f"{WIDTH}x{HEIGHT}", "fps": FPS},
 }
 
-app = FastAPI(title="Hailo Camera Viewer", version="1.0.9")
+detector: PersonDetector | None = None
+detector_lock = threading.Lock()
+detection_results: dict[str, dict[str, Any]] = {}
+detection_lock = threading.Lock()
+
+app = FastAPI(title="Hailo Camera Viewer", version="1.1.0")
 _cpu_previous: tuple[int, int] | None = None
 
 
@@ -80,7 +88,49 @@ class CameraCapture:
         self.process: subprocess.Popen[bytes] | None = None
         self.stop_event = threading.Event()
         self.thread = threading.Thread(target=self._read, daemon=True)
+        self.detection_thread = threading.Thread(target=self._detect, daemon=True)
         self.thread.start()
+        self.detection_thread.start()
+
+    def _detect(self) -> None:
+        global detector
+        last_sequence = -1
+        while not self.stop_event.is_set():
+            with self.condition:
+                self.condition.wait_for(
+                    lambda: self.stop_event.is_set()
+                    or (self.latest is not None and self.sequence != last_sequence),
+                    timeout=5,
+                )
+                if self.stop_event.is_set():
+                    return
+                frame = self.latest
+                last_sequence = self.sequence
+            if frame is None:
+                continue
+            try:
+                if detector is None:
+                    with detector_lock:
+                        if detector is None:
+                            detector = PersonDetector()
+                detections = detector.detect(frame)
+                with detection_lock:
+                    previous = detection_results.get(self.camera, {})
+                    detection_results[self.camera] = {
+                        "camera": int(self.camera),
+                        "person_count": len(detections),
+                        "alert": len(detections) > 0 and previous.get("person_count", 0) == 0,
+                        "detections": detections,
+                    }
+            except Exception as exc:
+                with detection_lock:
+                    detection_results[self.camera] = {
+                        "camera": int(self.camera),
+                        "person_count": 0,
+                        "alert": False,
+                        "detections": [],
+                        "error": str(exc),
+                    }
 
     def _read(self) -> None:
         self.process = subprocess.Popen(
@@ -152,6 +202,8 @@ class CameraCapture:
                 pass
         if self.thread is not threading.current_thread():
             self.thread.join(timeout=3)
+        if self.detection_thread is not threading.current_thread():
+            self.detection_thread.join(timeout=3)
 
 
 captures: dict[str, CameraCapture] = {}
@@ -172,10 +224,10 @@ def index() -> str:
     return """<!doctype html>
 <html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Caméras du Raspberry Pi</title>
-<style>body{font-family:sans-serif;background:#111;color:#eee;margin:2rem}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:1rem}section{background:#222;padding:1rem;border-radius:8px}img{width:100%;height:auto;background:#000;display:block}.rotate-180{transform:rotate(180deg)}#cpu{color:#8f8;font-weight:bold}</style>
+<style>body{font-family:sans-serif;background:#111;color:#eee;margin:2rem}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:1rem}section{background:#222;padding:1rem;border-radius:8px}.camera-view{position:relative;background:#000}.camera-view img{width:100%;height:auto;display:block}.camera-view canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}.rotate-180{transform:rotate(180deg)}#cpu{color:#8f8;font-weight:bold}.status{font-size:1.2rem}.alert{color:#ff7070;font-weight:bold}</style>
 </head><body><h1>Caméras du Raspberry Pi</h1><p>Occupation CPU : <span id="cpu">--</span> %</p><main>
-<section><h2>Caméra 0 — OV5647</h2><label>Résolution <select data-camera="0" class="resolution"></select></label> <label>FPS <select data-camera="0" class="fps"></select></label><img src="/camera/0" alt="Flux caméra 0"></section>
-<section><h2>Caméra 1 — IMX708</h2><label>Résolution <select data-camera="1" class="resolution"></select></label> <label>FPS <select data-camera="1" class="fps"></select></label><img class="rotate-180" src="/camera/1" alt="Flux caméra 1"></section>
+<section><h2>Caméra 0 — OV5647</h2><label>Résolution <select data-camera="0" class="resolution"></select></label> <label>FPS <select data-camera="0" class="fps"></select></label><p class="status">Personnes : <span id="count-0">0</span> <span id="alert-0"></span></p><div class="camera-view"><img src="/camera/0" alt="Flux caméra 0"><canvas id="canvas-0"></canvas></div></section>
+<section><h2>Caméra 1 — IMX708</h2><label>Résolution <select data-camera="1" class="resolution"></select></label> <label>FPS <select data-camera="1" class="fps"></select></label><p class="status">Personnes : <span id="count-1">0</span> <span id="alert-1"></span></p><div class="camera-view"><img class="rotate-180" src="/camera/1" alt="Flux caméra 1"><canvas class="rotate-180" id="canvas-1"></canvas></div></section>
 </main><script>
 const resolutions = ["640x480", "1280x720", "1920x1080"];
 const fpsOptions = [5, 10, 15, 20, 30];
@@ -195,6 +247,25 @@ async function refreshCpu() {
   const current = await fetch('/health').then(r => r.json());
   document.getElementById('cpu').textContent = current.cpu_percent;
 }
+let previousCounts = [0, 0];
+async function refreshDetections(camera) {
+  const result = await fetch('/detections/' + camera).then(r => r.json());
+  document.getElementById('count-' + camera).textContent = result.person_count;
+  const alert = document.getElementById('alert-' + camera);
+  alert.textContent = result.alert ? ' — PERSONNE DÉTECTÉE' : '';
+  alert.className = result.alert ? 'alert' : '';
+  if (result.person_count > 0 && previousCounts[camera] === 0) {
+    try { const audio = new AudioContext(); const oscillator = audio.createOscillator(); oscillator.connect(audio.destination); oscillator.start(); oscillator.stop(audio.currentTime + 0.12); } catch (_) {}
+  }
+  previousCounts[camera] = result.person_count;
+  const img = document.querySelector('img[src^="/camera/' + camera + '"]');
+  const canvas = document.getElementById('canvas-' + camera);
+  if (!img.naturalWidth) return;
+  canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+  const ctx = canvas.getContext('2d'); ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.lineWidth = Math.max(3, canvas.width / 320); ctx.font = Math.max(16, canvas.width / 35) + 'px sans-serif';
+  result.detections.forEach((d, index) => { const [x1,y1,x2,y2] = d.box; ctx.strokeStyle='#00ff66'; ctx.strokeRect(x1,y1,x2-x1,y2-y1); ctx.fillStyle='#00ff66'; ctx.fillText('Personne ' + (index + 1) + ' ' + Math.round(d.confidence * 100) + '%', x1, Math.max(20,y1-6)); });
+}
 async function changeCamera(event) {
   const camera = event.target.dataset.camera;
   const resolution = document.querySelector('.resolution[data-camera="' + camera + '"]').value;
@@ -205,12 +276,27 @@ async function changeCamera(event) {
 document.querySelectorAll('select').forEach(select => select.addEventListener('change', changeCamera));
 init();
 setInterval(refreshCpu, 2000);
+setInterval(() => { refreshDetections(0); refreshDetections(1); }, 500);
 </script></body></html>"""
 
 
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok", "cameras": CAMERAS, "settings": settings, "cpu_percent": cpu_percent()}
+
+
+@app.get("/detections/{camera_id}")
+def detections(camera_id: int) -> dict[str, Any]:
+    if camera_id not in CAMERAS:
+        raise HTTPException(404, "Caméra inconnue")
+    with detection_lock:
+        return detection_results.get(CAMERAS[camera_id], {
+            "camera": camera_id,
+            "person_count": 0,
+            "alert": False,
+            "detections": [],
+            "status": "starting",
+        })
 
 
 @app.post("/settings/{camera_id}")

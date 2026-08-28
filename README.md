@@ -1,6 +1,6 @@
 # Hailo Vision API
 
-Version : `1.0.9`
+Version : `1.1.0`
 
 API HTTP minimale pour exécuter un modèle `.hef` sur un accélérateur Hailo.
 L'inférence est strictement déléguée à HailoRT : si le runtime ou le Hailo
@@ -48,6 +48,12 @@ CAMERA_USE_SUDO=1 .venv/bin/python -m uvicorn app.camera_server:app \
 Ouvrir ensuite [http://192.168.1.44:8090](http://192.168.1.44:8090) depuis un
 appareil du réseau local. La page affiche les flux MJPEG des caméras 0 et 1.
 Le serveur n'écoute que sur l'adresse LAN du Pi.
+
+La page affiche aussi la détection des personnes réalisée par le Hailo, avec
+compteur, rectangles et alerte à l'apparition. Les résultats sont disponibles
+sur `/detections/0` et `/detections/1`. Le modèle par défaut est
+`/usr/local/hailo/resources/models/hailo8/yolov8m.hef` et peut être remplacé
+avec `HEF_PATH`.
 
 ## Limite importante
 
