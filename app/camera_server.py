@@ -38,7 +38,7 @@ face_recognizer_lock = threading.Lock()
 detection_results: dict[str, dict[str, Any]] = {}
 detection_lock = threading.Lock()
 
-app = FastAPI(title="Hailo Camera Viewer", version="1.5.1")
+app = FastAPI(title="Hailo Camera Viewer", version="1.5.2")
 _cpu_previous: tuple[int, int] | None = None
 
 
@@ -153,7 +153,7 @@ class CameraCapture:
                         average /= max(np.linalg.norm(average), 1e-12)
                         face_track["embedding"] = average.tolist()
                         person = match(face_track["embedding"])
-                    if person is None and len(faces) == 1:
+                    if person is None and len(detections) == 1:
                         named = [item for item in list_people() if not item["name"].startswith("Visage ")]
                         if len(named) == 1:
                             person = get(named[0]["id"])
