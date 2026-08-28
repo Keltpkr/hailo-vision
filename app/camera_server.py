@@ -25,7 +25,25 @@ settings = {
     "1": {"resolution": f"{WIDTH}x{HEIGHT}", "fps": FPS},
 }
 
-app = FastAPI(title="Hailo Camera Viewer", version="1.0.8")
+app = FastAPI(title="Hailo Camera Viewer", version="1.0.9")
+_cpu_previous: tuple[int, int] | None = None
+
+
+def cpu_percent() -> float:
+    global _cpu_previous
+    with open("/proc/stat", encoding="ascii") as proc_stat:
+        fields = proc_stat.readline().split()[1:]
+    values = [int(value) for value in fields]
+    idle = values[3] + values[4]
+    total = sum(values)
+    current = (total, idle)
+    if _cpu_previous is None:
+        _cpu_previous = current
+        return 0.0
+    total_delta = total - _cpu_previous[0]
+    idle_delta = idle - _cpu_previous[1]
+    _cpu_previous = current
+    return round(max(0.0, min(100.0, 100 * (1 - idle_delta / total_delta))), 1) if total_delta else 0.0
 
 
 def camera_command(camera: str, width: int, height: int, fps: int) -> list[str]:
@@ -60,6 +78,7 @@ class CameraCapture:
         self.latest: bytes | None = None
         self.sequence = 0
         self.process: subprocess.Popen[bytes] | None = None
+        self.stop_event = threading.Event()
         self.thread = threading.Thread(target=self._read, daemon=True)
         self.thread.start()
 
@@ -75,9 +94,12 @@ class CameraCapture:
             bufsize=0,
             start_new_session=True,
         )
+        if self.stop_event.is_set():
+            self.stop()
+            return
         assert self.process.stdout is not None
         buffer = b""
-        while True:
+        while not self.stop_event.is_set():
             chunk = self.process.stdout.read(64 * 1024)
             if not chunk:
                 break
@@ -100,12 +122,15 @@ class CameraCapture:
 
     def frames(self) -> Iterator[bytes]:
         last_sequence = -1
-        while True:
+        while not self.stop_event.is_set():
             with self.condition:
                 self.condition.wait_for(
-                    lambda: self.latest is not None and self.sequence != last_sequence,
+                    lambda: self.stop_event.is_set()
+                    or (self.latest is not None and self.sequence != last_sequence),
                     timeout=5,
                 )
+                if self.stop_event.is_set():
+                    return
                 if self.latest is None:
                     continue
                 frame = self.latest
@@ -117,11 +142,16 @@ class CameraCapture:
             )
 
     def stop(self) -> None:
+        self.stop_event.set()
+        with self.condition:
+            self.condition.notify_all()
         if self.process and self.process.poll() is None:
             try:
                 os.killpg(self.process.pid, signal.SIGTERM)
             except ProcessLookupError:
                 pass
+        if self.thread is not threading.current_thread():
+            self.thread.join(timeout=3)
 
 
 captures: dict[str, CameraCapture] = {}
@@ -142,8 +172,8 @@ def index() -> str:
     return """<!doctype html>
 <html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Caméras du Raspberry Pi</title>
-<style>body{font-family:sans-serif;background:#111;color:#eee;margin:2rem}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:1rem}section{background:#222;padding:1rem;border-radius:8px}img{width:100%;height:auto;background:#000;display:block}.rotate-180{transform:rotate(180deg)}</style>
-</head><body><h1>Caméras du Raspberry Pi</h1><main>
+<style>body{font-family:sans-serif;background:#111;color:#eee;margin:2rem}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:1rem}section{background:#222;padding:1rem;border-radius:8px}img{width:100%;height:auto;background:#000;display:block}.rotate-180{transform:rotate(180deg)}#cpu{color:#8f8;font-weight:bold}</style>
+</head><body><h1>Caméras du Raspberry Pi</h1><p>Occupation CPU : <span id="cpu">--</span> %</p><main>
 <section><h2>Caméra 0 — OV5647</h2><label>Résolution <select data-camera="0" class="resolution"></select></label> <label>FPS <select data-camera="0" class="fps"></select></label><img src="/camera/0" alt="Flux caméra 0"></section>
 <section><h2>Caméra 1 — IMX708</h2><label>Résolution <select data-camera="1" class="resolution"></select></label> <label>FPS <select data-camera="1" class="fps"></select></label><img class="rotate-180" src="/camera/1" alt="Flux caméra 1"></section>
 </main><script>
@@ -159,6 +189,11 @@ async function init() {
     fpsOptions.forEach(value => select.add(new Option(value + ' FPS', value)));
     select.value = current.settings[select.dataset.camera].fps;
   });
+  document.getElementById('cpu').textContent = current.cpu_percent;
+}
+async function refreshCpu() {
+  const current = await fetch('/health').then(r => r.json());
+  document.getElementById('cpu').textContent = current.cpu_percent;
 }
 async function changeCamera(event) {
   const camera = event.target.dataset.camera;
@@ -169,12 +204,13 @@ async function changeCamera(event) {
 }
 document.querySelectorAll('select').forEach(select => select.addEventListener('change', changeCamera));
 init();
+setInterval(refreshCpu, 2000);
 </script></body></html>"""
 
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok", "cameras": CAMERAS, "settings": settings}
+    return {"status": "ok", "cameras": CAMERAS, "settings": settings, "cpu_percent": cpu_percent()}
 
 
 @app.post("/settings/{camera_id}")
