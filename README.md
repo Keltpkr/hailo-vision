@@ -1,6 +1,6 @@
 # Hailo Vision API
 
-Version : `1.6.0`
+Version : `1.6.1`
 
 API HTTP minimale pour exécuter un modèle `.hef` sur un accélérateur Hailo.
 L'inférence est strictement déléguée à HailoRT : si le runtime ou le Hailo
@@ -55,8 +55,8 @@ sur `/detections/0` et `/detections/1`. Le modèle par défaut est
 `/usr/local/hailo/resources/models/hailo8/yolov8m.hef` et peut être remplacé
 avec `HEF_PATH`.
 
-Le serveur utilise uniquement l’OV5647, réglée par défaut en 1920×1440 (format
-4:3, champ de vision élargi) à 5 FPS.
+Le serveur utilise uniquement l’OV5647, réglée par défaut en 1296×972 (mode
+natif 4:3 à champ de vision élargi) à 5 FPS.
 L’IMX708 est désactivée et n’est plus affichée dans la page. L’enrôlement
 live est autorisé uniquement lorsqu’au moins une personne est détectée ; une
 détection sans correspondance est affichée comme `Personne non identifiée`.
