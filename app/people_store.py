@@ -28,7 +28,11 @@ def _write(people: list[dict[str, Any]]) -> None:
 
 
 def list_people() -> list[dict[str, Any]]:
-    return _read()
+    return [{key: value for key, value in person.items() if key != "embedding"} for person in _read()]
+
+
+def get(person_id: str) -> dict[str, Any] | None:
+    return next((person for person in _read() if person["id"] == person_id), None)
 
 
 def enroll(jpeg: bytes, name: str, camera: int, embedding: list[float] | None = None) -> dict[str, Any]:
@@ -44,7 +48,7 @@ def enroll(jpeg: bytes, name: str, camera: int, embedding: list[float] | None = 
     return person
 
 
-def match(embedding: list[float], threshold: float = 0.55) -> dict[str, Any] | None:
+def match(embedding: list[float], threshold: float = 0.3) -> dict[str, Any] | None:
     vector = np.asarray(embedding, dtype=np.float32)
     for person in _read():
         stored = person.get("embedding")

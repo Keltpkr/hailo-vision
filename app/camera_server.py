@@ -4,6 +4,7 @@ import os
 import signal
 import subprocess
 import threading
+import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -12,7 +13,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 
 from .face_recognizer import FaceRecognizer
-from .people_store import enroll, list_people, match, rename
+from .people_store import enroll, get, list_people, match, rename
 from .person_detector import PersonDetector
 
 
@@ -36,7 +37,7 @@ face_recognizer_lock = threading.Lock()
 detection_results: dict[str, dict[str, Any]] = {}
 detection_lock = threading.Lock()
 
-app = FastAPI(title="Hailo Camera Viewer", version="1.4.0")
+app = FastAPI(title="Hailo Camera Viewer", version="1.4.1")
 _cpu_previous: tuple[int, int] | None = None
 
 
@@ -90,6 +91,7 @@ class CameraCapture:
         self.sequence = 0
         self.process: subprocess.Popen[bytes] | None = None
         self.stop_event = threading.Event()
+        self.face_tracks: list[dict[str, Any]] = []
         self.thread = threading.Thread(target=self._read, daemon=True)
         self.detection_thread = threading.Thread(target=self._detect, daemon=True)
         self.thread.start()
@@ -123,8 +125,21 @@ class CameraCapture:
                             face_recognizer = FaceRecognizer()
                 faces = face_recognizer.faces(frame)
                 named_faces = []
+                now = time.monotonic()
+                self.face_tracks = [track for track in self.face_tracks if now - track["seen"] < 3]
                 for face in faces:
-                    person = match(face["embedding"])
+                    x1, y1, x2, y2 = face["box"]
+                    person = None
+                    for track in self.face_tracks:
+                        tx1, ty1, tx2, ty2 = track["box"]
+                        overlap = max(0, min(x2, tx2) - max(x1, tx1)) * max(0, min(y2, ty2) - max(y1, ty1))
+                        union = (x2 - x1) * (y2 - y1) + (tx2 - tx1) * (ty2 - ty1) - overlap
+                        if union and overlap / union > 0.2:
+                            person = get(track["person_id"])
+                            track.update(box=face["box"], seen=now)
+                            break
+                    if person is None:
+                        person = match(face["embedding"])
                     if person is None:
                         person = enroll(
                             face["image"],
@@ -132,6 +147,8 @@ class CameraCapture:
                             int(self.camera),
                             face["embedding"],
                         )
+                    if not any(track["person_id"] == person["id"] for track in self.face_tracks):
+                        self.face_tracks.append({"person_id": person["id"], "box": face["box"], "seen": now})
                     named_faces.append({
                         "label": "person",
                         "name": person["name"],
