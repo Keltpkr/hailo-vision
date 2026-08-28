@@ -38,7 +38,7 @@ face_recognizer_lock = threading.Lock()
 detection_results: dict[str, dict[str, Any]] = {}
 detection_lock = threading.Lock()
 
-app = FastAPI(title="Hailo Camera Viewer", version="1.6.5")
+app = FastAPI(title="Hailo Camera Viewer", version="1.6.6")
 _cpu_previous: tuple[int, int] | None = None
 
 
@@ -271,6 +271,75 @@ class CameraCapture:
 
 captures: dict[str, CameraCapture] = {}
 captures_lock = threading.Lock()
+enrollments: dict[str, dict[str, Any]] = {}
+enrollment_lock = threading.Lock()
+ENROLLMENT_MAX_SECONDS = 20
+
+
+def active_capture(camera_id: int) -> CameraCapture:
+    physical_camera = CAMERAS[camera_id]
+    with captures_lock:
+        capture = captures.get(physical_camera)
+        if capture is None or not capture.thread.is_alive():
+            if capture is not None:
+                capture.stop()
+            capture = CameraCapture(physical_camera, settings[str(camera_id)].copy())
+            captures[physical_camera] = capture
+        return capture
+
+
+def enrollment_worker(camera_id: int, name: str, capture: CameraCapture, state: dict[str, Any]) -> None:
+    frames: list[bytes] = []
+    started = time.monotonic()
+    last_sequence = -1
+    recording_dir = Path(__file__).resolve().parent.parent / "data" / "enrollments"
+    recording_dir.mkdir(parents=True, exist_ok=True)
+    video_path = recording_dir / f"enrollment-{int(time.time())}.mjpeg"
+    with video_path.open("wb") as video:
+        while not state["stop"].is_set() and time.monotonic() - started < ENROLLMENT_MAX_SECONDS:
+            with capture.condition:
+                capture.condition.wait_for(lambda: capture.sequence != last_sequence or state["stop"].is_set(), timeout=1)
+                if state["stop"].is_set():
+                    break
+                frame = capture.latest
+                last_sequence = capture.sequence
+            if frame is not None:
+                frames.append(frame)
+                video.write(frame)
+                state["frames"] = len(frames)
+    state["active"] = False
+    state["status"] = "processing"
+    embeddings: list[np.ndarray] = []
+    best_image: bytes | None = None
+    best_area = 0
+    global face_recognizer
+    try:
+        if face_recognizer is None:
+            with face_recognizer_lock:
+                if face_recognizer is None:
+                    face_recognizer = FaceRecognizer()
+        assert face_recognizer is not None
+        for frame in frames:
+            faces = face_recognizer.faces(frame)
+            if not faces:
+                continue
+            face = max(faces, key=lambda item: (item["box"][2] - item["box"][0]) * (item["box"][3] - item["box"][1]))
+            x1, y1, x2, y2 = face["box"]
+            area = (x2 - x1) * (y2 - y1)
+            embeddings.append(np.asarray(face["embedding"], dtype=np.float32))
+            if area > best_area:
+                best_area = area
+                best_image = face["image"]
+        if not embeddings or best_image is None:
+            state.update(status="error", error="Aucun visage exploitable dans la vidéo", video=str(video_path))
+            return
+        average = np.mean(np.asarray(embeddings), axis=0)
+        average /= max(np.linalg.norm(average), 1e-12)
+        person = enroll(best_image, state.get("name", name), camera_id, average.tolist())
+        state.update(status="completed", person_id=person["id"], samples=len(embeddings), video=str(video_path))
+    except Exception as exc:
+        state.update(status="error", error=str(exc), video=str(video_path))
+
 
 
 def jpeg_stream(camera: str) -> Iterator[bytes]:
@@ -291,7 +360,7 @@ def index() -> str:
 <title>Caméras du Raspberry Pi</title>
 <style>body{font-family:sans-serif;background:#111;color:#eee;margin:2rem}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:1rem}section{background:#222;padding:1rem;border-radius:8px}.camera-view{position:relative;background:#000}.camera-view img{width:100%;height:auto;display:block}.camera-view canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}.rotate-180{transform:rotate(180deg)}#cpu{color:#8f8;font-weight:bold}.status{font-size:1.2rem}.alert{color:#ff7070;font-weight:bold}</style>
 </head><body><h1>Caméras du Raspberry Pi</h1><p>Occupation CPU : <span id="cpu">--</span> %</p><main>
-<section><h2>Caméra 0 — OV5647</h2><label>Résolution <select data-camera="0" class="resolution"></select></label> <label>FPS <select data-camera="0" class="fps"></select></label><p class="status">Personnes : <span id="count-0">0</span> <span id="alert-0"></span></p><div class="camera-view"><img src="/camera/0" alt="Flux caméra 0"><canvas id="canvas-0"></canvas></div><div id="faces"></div></section>
+<section><h2>Caméra 0 — OV5647</h2><label>Résolution <select data-camera="0" class="resolution"></select></label> <label>FPS <select data-camera="0" class="fps"></select></label><p class="status">Personnes : <span id="count-0">0</span> <span id="alert-0"></span></p><div class="camera-view"><img src="/camera/0" alt="Flux caméra"><canvas id="canvas-0"></canvas></div><p><input id="enrollment-name" value="Personne 1" aria-label="Nom du visage"><button id="enrollment-button" onclick="toggleEnrollment()">Enregistrer une séquence (5 FPS)</button></p><p id="enrollment-status"></p><div id="faces"></div></section>
 </main><script>
 const resolutions = ["640x480", "1296x972", "1920x1440", "2592x1944"];
 const fpsOptions = [5, 10, 15, 20, 30];
@@ -350,11 +419,33 @@ async function changeCamera(event) {
   await fetch('/settings/' + camera + '?resolution=' + encodeURIComponent(resolution) + '&fps=' + fps, {method: 'POST'});
   document.querySelector('img[src^="/camera/' + camera + '"]').src = '/camera/' + camera + '?t=' + Date.now();
 }
+async function toggleEnrollment() {
+  const button = document.getElementById('enrollment-button');
+  const status = document.getElementById('enrollment-status');
+  if (button.dataset.active === '1') {
+    const name = document.getElementById('enrollment-name').value || 'Personne 1';
+    await fetch('/enrollment/stop/0?name=' + encodeURIComponent(name), {method:'POST'});
+    button.dataset.active = '0'; button.disabled = true; status.textContent = 'Analyse Hailo de la séquence…';
+  } else {
+    const response = await fetch('/enrollment/start/0', {method:'POST'});
+    if (!response.ok) { status.textContent = 'Impossible de démarrer l’enregistrement'; return; }
+    button.dataset.active = '1'; button.textContent = 'Arrêter et analyser'; status.textContent = 'Déplace-toi devant la caméra (20 s maximum)';
+  }
+}
+async function refreshEnrollment() {
+  const response = await fetch('/enrollment/status/0'); if (!response.ok) return;
+  const state = await response.json(); const button = document.getElementById('enrollment-button');
+  const status = document.getElementById('enrollment-status');
+  if (state.active) status.textContent = 'Enregistrement : ' + state.frames + ' images à 5 FPS';
+  if (state.status === 'completed') { status.textContent = 'Profil créé avec ' + state.samples + ' images'; button.disabled = false; button.dataset.active = '0'; button.textContent = 'Enregistrer une séquence (5 FPS)'; }
+  if (state.status === 'error') { status.textContent = state.error; button.disabled = false; button.dataset.active = '0'; button.textContent = 'Enregistrer une séquence (5 FPS)'; }
+}
 document.querySelectorAll('select').forEach(select => select.addEventListener('change', changeCamera));
 init();
 setInterval(refreshCpu, 2000);
 setInterval(() => { refreshDetections(0); }, 500);
 setInterval(refreshFaces, 1000);
+setInterval(refreshEnrollment, 1000);
 refreshFaces();
 </script></body></html>"""
 
@@ -396,6 +487,45 @@ def enroll_person(camera_id: int, name: str = "Personne 1") -> dict[str, Any]:
     if result.get("person_count", 0) < 1:
         raise HTTPException(409, "Enrôlement refusé : aucune personne détectée")
     return enroll(capture.latest, name, camera_id)
+
+
+@app.post("/enrollment/start/{camera_id}")
+def start_enrollment(camera_id: int) -> dict[str, Any]:
+    if camera_id not in CAMERAS:
+        raise HTTPException(404, "Caméra inconnue")
+    key = str(camera_id)
+    with enrollment_lock:
+        current = enrollments.get(key)
+        if current and (current["active"] or current["status"] == "processing"):
+            raise HTTPException(409, "Un enrôlement est déjà en cours")
+        state: dict[str, Any] = {"active": True, "status": "recording", "frames": 0, "stop": threading.Event()}
+        enrollments[key] = state
+    thread = threading.Thread(target=enrollment_worker, args=(camera_id, "Personne 1", active_capture(camera_id), state), daemon=True)
+    state["thread"] = thread
+    thread.start()
+    return {"camera": camera_id, "status": "recording", "fps": 5, "max_seconds": ENROLLMENT_MAX_SECONDS}
+
+
+@app.post("/enrollment/stop/{camera_id}")
+def stop_enrollment(camera_id: int, name: str = "Personne 1") -> dict[str, Any]:
+    if camera_id not in CAMERAS:
+        raise HTTPException(404, "Caméra inconnue")
+    with enrollment_lock:
+        state = enrollments.get(str(camera_id))
+        if not state or not state["active"]:
+            raise HTTPException(409, "Aucun enrôlement en cours")
+        state["stop"].set()
+        state["name"] = name or "Personne 1"
+    return {"camera": camera_id, "status": "processing"}
+
+
+@app.get("/enrollment/status/{camera_id}")
+def enrollment_status(camera_id: int) -> dict[str, Any]:
+    if camera_id not in CAMERAS:
+        raise HTTPException(404, "Caméra inconnue")
+    with enrollment_lock:
+        state = enrollments.get(str(camera_id), {"active": False, "status": "idle", "frames": 0})
+        return {key: value for key, value in state.items() if key not in {"stop", "thread"}}
 
 
 @app.patch("/people/{person_id}")
