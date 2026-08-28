@@ -19,9 +19,9 @@ CAMERAS = {
     0: os.getenv("CAMERA_0", "0"),
     1: os.getenv("CAMERA_1", "1"),
 }
-WIDTH = int(os.getenv("CAMERA_WIDTH", "640"))
-HEIGHT = int(os.getenv("CAMERA_HEIGHT", "480"))
-FPS = int(os.getenv("CAMERA_FPS", "10"))
+WIDTH = int(os.getenv("CAMERA_WIDTH", "1920"))
+HEIGHT = int(os.getenv("CAMERA_HEIGHT", "1080"))
+FPS = int(os.getenv("CAMERA_FPS", "5"))
 USE_SUDO = os.getenv("CAMERA_USE_SUDO", "1") == "1"
 RESOLUTIONS = ("640x480", "1280x720", "1920x1080")
 FPS_OPTIONS = (5, 10, 15, 20, 30)
@@ -35,7 +35,7 @@ detector_lock = threading.Lock()
 detection_results: dict[str, dict[str, Any]] = {}
 detection_lock = threading.Lock()
 
-app = FastAPI(title="Hailo Camera Viewer", version="1.2.0")
+app = FastAPI(title="Hailo Camera Viewer", version="1.2.1")
 _cpu_previous: tuple[int, int] | None = None
 
 
@@ -266,7 +266,7 @@ async function refreshDetections(camera) {
   canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
   const ctx = canvas.getContext('2d'); ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.lineWidth = Math.max(3, canvas.width / 320); ctx.font = Math.max(16, canvas.width / 35) + 'px sans-serif';
-  result.detections.forEach((d, index) => { const [x1,y1,x2,y2] = d.box; ctx.strokeStyle='#00ff66'; ctx.strokeRect(x1,y1,x2-x1,y2-y1); ctx.fillStyle='#00ff66'; ctx.fillText('Personne ' + (index + 1) + ' ' + Math.round(d.confidence * 100) + '%', x1, Math.max(20,y1-6)); });
+  result.detections.forEach((d) => { const [x1,y1,x2,y2] = d.box; ctx.strokeStyle='#00ff66'; ctx.strokeRect(x1,y1,x2-x1,y2-y1); ctx.fillStyle='#00ff66'; ctx.fillText((d.name || 'Personne non identifiée') + ' ' + Math.round(d.confidence * 100) + '%', x1, Math.max(20,y1-6)); });
 }
 async function changeCamera(event) {
   const camera = event.target.dataset.camera;
@@ -321,6 +321,10 @@ def enroll_person(camera_id: int, name: str = "Personne 1") -> dict[str, Any]:
         capture = captures.get(CAMERAS[camera_id])
     if capture is None or capture.latest is None:
         raise HTTPException(409, "Le flux caméra doit être actif")
+    with detection_lock:
+        result = detection_results.get(CAMERAS[camera_id], {})
+    if result.get("person_count", 0) < 1:
+        raise HTTPException(409, "Enrôlement refusé : aucune personne détectée")
     return enroll(capture.latest, name, camera_id)
 
 

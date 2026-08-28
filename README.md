@@ -1,6 +1,6 @@
 # Hailo Vision API
 
-Version : `1.2.0`
+Version : `1.2.1`
 
 API HTTP minimale pour exécuter un modèle `.hef` sur un accélérateur Hailo.
 L'inférence est strictement déléguée à HailoRT : si le runtime ou le Hailo
@@ -54,6 +54,10 @@ compteur, rectangles et alerte à l'apparition. Les résultats sont disponibles
 sur `/detections/0` et `/detections/1`. Le modèle par défaut est
 `/usr/local/hailo/resources/models/hailo8/yolov8m.hef` et peut être remplacé
 avec `HEF_PATH`.
+
+Les réglages par défaut des deux caméras sont 1920×1080 à 5 FPS. L’enrôlement
+live est autorisé uniquement lorsqu’au moins une personne est détectée ; une
+détection sans correspondance est affichée comme `Personne non identifiée`.
 
 L’enrôlement live est disponible avec les boutons de la page. Une image JPEG
 de référence est conservée localement dans `data/people/`; elle peut être

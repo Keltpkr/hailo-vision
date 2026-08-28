@@ -51,6 +51,7 @@ class PersonDetector:
                         continue
                     detections.append({
                         "label": "person",
+                        "name": "Personne non identifiée",
                         "confidence": round(score, 3),
                         "box": [
                             round(max(0, min(1, xmin)) * source_width),
@@ -60,4 +61,3 @@ class PersonDetector:
                         ],
                     })
         return detections
-
