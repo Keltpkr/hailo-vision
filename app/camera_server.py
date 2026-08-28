@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import threading
 from collections.abc import Iterator
 
 from fastapi import FastAPI, HTTPException
@@ -35,18 +36,29 @@ def camera_command(camera: str) -> list[str]:
     return (["sudo", "-n"] if USE_SUDO else []) + command
 
 
-def jpeg_stream(camera: str) -> Iterator[bytes]:
-    process = subprocess.Popen(
-        camera_command(camera),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        bufsize=0,
-    )
-    assert process.stdout is not None
-    buffer = b""
-    try:
+class CameraCapture:
+    """One rpicam process per physical camera, shared by all HTTP clients."""
+
+    def __init__(self, camera: str) -> None:
+        self.camera = camera
+        self.condition = threading.Condition()
+        self.latest: bytes | None = None
+        self.sequence = 0
+        self.process: subprocess.Popen[bytes] | None = None
+        self.thread = threading.Thread(target=self._read, daemon=True)
+        self.thread.start()
+
+    def _read(self) -> None:
+        self.process = subprocess.Popen(
+            camera_command(self.camera),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            bufsize=0,
+        )
+        assert self.process.stdout is not None
+        buffer = b""
         while True:
-            chunk = process.stdout.read(64 * 1024)
+            chunk = self.process.stdout.read(64 * 1024)
             if not chunk:
                 break
             buffer += chunk
@@ -61,17 +73,41 @@ def jpeg_stream(camera: str) -> Iterator[bytes]:
                     break
                 frame = buffer[start:end + 2]
                 buffer = buffer[end + 2:]
-                yield (
-                    b"--frame\r\nContent-Type: image/jpeg\r\n"
-                    + f"Content-Length: {len(frame)}\r\n\r\n".encode()
-                    + frame + b"\r\n"
+                with self.condition:
+                    self.latest = frame
+                    self.sequence += 1
+                    self.condition.notify_all()
+
+    def frames(self) -> Iterator[bytes]:
+        last_sequence = -1
+        while True:
+            with self.condition:
+                self.condition.wait_for(
+                    lambda: self.latest is not None and self.sequence != last_sequence,
+                    timeout=5,
                 )
-    finally:
-        process.terminate()
-        try:
-            process.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            process.kill()
+                if self.latest is None:
+                    continue
+                frame = self.latest
+                last_sequence = self.sequence
+            yield (
+                b"--frame\r\nContent-Type: image/jpeg\r\n"
+                + f"Content-Length: {len(frame)}\r\n\r\n".encode()
+                + frame + b"\r\n"
+            )
+
+
+captures: dict[str, CameraCapture] = {}
+captures_lock = threading.Lock()
+
+
+def jpeg_stream(camera: str) -> Iterator[bytes]:
+    with captures_lock:
+        capture = captures.get(camera)
+        if capture is None:
+            capture = CameraCapture(camera)
+            captures[camera] = capture
+    yield from capture.frames()
 
 
 @app.get("/", response_class=HTMLResponse)
