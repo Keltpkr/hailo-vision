@@ -1,6 +1,6 @@
 # Hailo Vision API
 
-Version : `1.2.4`
+Version : `1.2.5`
 
 API HTTP minimale pour exécuter un modèle `.hef` sur un accélérateur Hailo.
 L'inférence est strictement déléguée à HailoRT : si le runtime ou le Hailo
@@ -55,9 +55,10 @@ sur `/detections/0` et `/detections/1`. Le modèle par défaut est
 `/usr/local/hailo/resources/models/hailo8/yolov8m.hef` et peut être remplacé
 avec `HEF_PATH`.
 
-Les réglages par défaut des deux caméras sont 1280×720 à 5 FPS, afin de rester
-dans les limites des buffers DMA simultanés. Le 1920×1080 reste sélectionnable
-pour un usage avec une seule caméra. L’enrôlement
+Le réglage par défaut de l’OV5647 est 1920×1080 à 5 FPS. L’IMX708 reste à
+1280×720 à 5 FPS afin de conserver les deux flux simultanément dans les limites
+des buffers DMA. Le 1920×1080 reste sélectionnable pour un usage avec une seule
+caméra. L’enrôlement
 live est autorisé uniquement lorsqu’au moins une personne est détectée ; une
 détection sans correspondance est affichée comme `Personne non identifiée`.
 
