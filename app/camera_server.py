@@ -18,7 +18,7 @@ HEIGHT = int(os.getenv("CAMERA_HEIGHT", "480"))
 FPS = int(os.getenv("CAMERA_FPS", "10"))
 USE_SUDO = os.getenv("CAMERA_USE_SUDO", "1") == "1"
 
-app = FastAPI(title="Hailo Camera Viewer", version="1.0.2")
+app = FastAPI(title="Hailo Camera Viewer", version="1.0.4")
 
 
 def camera_command(camera: str) -> list[str]:
@@ -32,9 +32,9 @@ def camera_command(camera: str) -> list[str]:
         "--timeout", "0",
         "--output", "-",
         "--nopreview",
-        "--hflip",
-        "--vflip",
     ]
+    if camera == "0":
+        command += ["--rotation", "180"]
     return (["sudo", "-n"] if USE_SUDO else []) + command
 
 
