@@ -18,7 +18,7 @@ HEIGHT = int(os.getenv("CAMERA_HEIGHT", "480"))
 FPS = int(os.getenv("CAMERA_FPS", "10"))
 USE_SUDO = os.getenv("CAMERA_USE_SUDO", "1") == "1"
 
-app = FastAPI(title="Hailo Camera Viewer", version="1.0.7")
+app = FastAPI(title="Hailo Camera Viewer", version="1.0.8")
 
 
 def camera_command(camera: str) -> list[str]:
@@ -34,7 +34,12 @@ def camera_command(camera: str) -> list[str]:
         "--nopreview",
     ]
     if camera == "1":
-        command += ["--autofocus-mode", "continuous", "--autofocus-range", "normal"]
+        command += [
+            "--autofocus-mode", "continuous",
+            "--autofocus-range", "full",
+            "--autofocus-speed", "fast",
+            "--autofocus-window", "0.20,0.20,0.60,0.60",
+        ]
     return (["sudo", "-n"] if USE_SUDO else []) + command
 
 
