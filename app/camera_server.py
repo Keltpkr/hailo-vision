@@ -11,7 +11,8 @@ from typing import Any
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 
-from .people_store import enroll, list_people, rename
+from .face_recognizer import FaceRecognizer
+from .people_store import enroll, list_people, match, rename
 from .person_detector import PersonDetector
 
 
@@ -30,10 +31,12 @@ settings = {
 
 detector: PersonDetector | None = None
 detector_lock = threading.Lock()
+face_recognizer: FaceRecognizer | None = None
+face_recognizer_lock = threading.Lock()
 detection_results: dict[str, dict[str, Any]] = {}
 detection_lock = threading.Lock()
 
-app = FastAPI(title="Hailo Camera Viewer", version="1.3.0")
+app = FastAPI(title="Hailo Camera Viewer", version="1.4.0")
 _cpu_previous: tuple[int, int] | None = None
 
 
@@ -93,7 +96,7 @@ class CameraCapture:
         self.detection_thread.start()
 
     def _detect(self) -> None:
-        global detector
+        global detector, face_recognizer
         last_sequence = -1
         while not self.stop_event.is_set():
             with self.condition:
@@ -114,6 +117,30 @@ class CameraCapture:
                         if detector is None:
                             detector = PersonDetector()
                 detections = detector.detect(frame)
+                if face_recognizer is None:
+                    with face_recognizer_lock:
+                        if face_recognizer is None:
+                            face_recognizer = FaceRecognizer()
+                faces = face_recognizer.faces(frame)
+                named_faces = []
+                for face in faces:
+                    person = match(face["embedding"])
+                    if person is None:
+                        person = enroll(
+                            face["image"],
+                            f"Visage {len(list_people()) + 1}",
+                            int(self.camera),
+                            face["embedding"],
+                        )
+                    named_faces.append({
+                        "label": "person",
+                        "name": person["name"],
+                        "person_id": person["id"],
+                        "confidence": face["confidence"],
+                        "box": face["box"],
+                    })
+                if named_faces:
+                    detections = named_faces
                 with detection_lock:
                     previous = detection_results.get(self.camera, {})
                     detection_results[self.camera] = {
@@ -228,7 +255,7 @@ def index() -> str:
 <title>Caméras du Raspberry Pi</title>
 <style>body{font-family:sans-serif;background:#111;color:#eee;margin:2rem}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:1rem}section{background:#222;padding:1rem;border-radius:8px}.camera-view{position:relative;background:#000}.camera-view img{width:100%;height:auto;display:block}.camera-view canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}.rotate-180{transform:rotate(180deg)}#cpu{color:#8f8;font-weight:bold}.status{font-size:1.2rem}.alert{color:#ff7070;font-weight:bold}</style>
 </head><body><h1>Caméras du Raspberry Pi</h1><p>Occupation CPU : <span id="cpu">--</span> %</p><main>
-<section><h2>Caméra 0 — OV5647</h2><label>Résolution <select data-camera="0" class="resolution"></select></label> <label>FPS <select data-camera="0" class="fps"></select></label><p class="status">Personnes : <span id="count-0">0</span> <span id="alert-0"></span></p><div class="camera-view"><img src="/camera/0" alt="Flux caméra 0"><canvas id="canvas-0"></canvas></div><button onclick="enrollPerson(0)">Enregistrer une personne depuis la caméra 0</button></section>
+<section><h2>Caméra 0 — OV5647</h2><label>Résolution <select data-camera="0" class="resolution"></select></label> <label>FPS <select data-camera="0" class="fps"></select></label><p class="status">Personnes : <span id="count-0">0</span> <span id="alert-0"></span></p><div class="camera-view"><img src="/camera/0" alt="Flux caméra 0"><canvas id="canvas-0"></canvas></div><div id="faces"></div></section>
 </main><script>
 const resolutions = ["640x480", "1280x720", "1920x1080"];
 const fpsOptions = [5, 10, 15, 20, 30];
@@ -267,6 +294,19 @@ async function refreshDetections(camera) {
   ctx.lineWidth = Math.max(3, canvas.width / 320); ctx.font = Math.max(16, canvas.width / 35) + 'px sans-serif';
   result.detections.forEach((d) => { const [x1,y1,x2,y2] = d.box; ctx.strokeStyle='#00ff66'; ctx.strokeRect(x1,y1,x2-x1,y2-y1); ctx.fillStyle='#00ff66'; ctx.fillText((d.name || 'Personne non identifiée') + ' ' + Math.round(d.confidence * 100) + '%', x1, Math.max(20,y1-6)); });
 }
+async function refreshFaces() {
+  const people = await fetch('/people').then(r => r.json());
+  const container = document.getElementById('faces');
+  people.forEach(person => {
+    let input = container.querySelector('input[data-id="' + person.id + '"]');
+    if (!input) {
+      const label = document.createElement('label'); label.textContent = person.name + ' ';
+      input = document.createElement('input'); input.dataset.id = person.id; input.value = person.name;
+      input.onchange = async () => { await fetch('/people/' + input.dataset.id + '?name=' + encodeURIComponent(input.value), {method:'PATCH'}); label.firstChild.data = input.value + ' '; };
+      label.append(input); container.append(label, document.createElement('br'));
+    } else if (document.activeElement !== input) input.value = person.name;
+  });
+}
 async function changeCamera(event) {
   const camera = event.target.dataset.camera;
   const resolution = document.querySelector('.resolution[data-camera="' + camera + '"]').value;
@@ -274,17 +314,12 @@ async function changeCamera(event) {
   await fetch('/settings/' + camera + '?resolution=' + encodeURIComponent(resolution) + '&fps=' + fps, {method: 'POST'});
   document.querySelector('img[src^="/camera/' + camera + '"]').src = '/camera/' + camera + '?t=' + Date.now();
 }
-async function enrollPerson(camera) {
-  const name = prompt('Nom de la personne :', 'Personne 1');
-  if (name === null) return;
-  const response = await fetch('/people/enroll/' + camera + '?name=' + encodeURIComponent(name), {method: 'POST'});
-  const result = await response.json();
-  alert(response.ok ? 'Image de référence sauvegardée pour ' + result.name : result.detail);
-}
 document.querySelectorAll('select').forEach(select => select.addEventListener('change', changeCamera));
 init();
 setInterval(refreshCpu, 2000);
 setInterval(() => { refreshDetections(0); }, 500);
+setInterval(refreshFaces, 1000);
+refreshFaces();
 </script></body></html>"""
 
 

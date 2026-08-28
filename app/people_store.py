@@ -6,6 +6,8 @@ import secrets
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "people"
 INDEX = DATA_DIR / "people.json"
@@ -29,17 +31,29 @@ def list_people() -> list[dict[str, Any]]:
     return _read()
 
 
-def enroll(jpeg: bytes, name: str, camera: int) -> dict[str, Any]:
+def enroll(jpeg: bytes, name: str, camera: int, embedding: list[float] | None = None) -> dict[str, Any]:
     people = _read()
     person_id = secrets.token_hex(8)
     safe_name = NAME_RE.sub("", name).strip() or f"Personne {len(people) + 1}"
     image_name = f"{person_id}.jpg"
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     (DATA_DIR / image_name).write_bytes(jpeg)
-    person = {"id": person_id, "name": safe_name, "camera": camera, "image": image_name}
+    person = {"id": person_id, "name": safe_name, "camera": camera, "image": image_name, "embedding": embedding}
     people.append(person)
     _write(people)
     return person
+
+
+def match(embedding: list[float], threshold: float = 0.55) -> dict[str, Any] | None:
+    vector = np.asarray(embedding, dtype=np.float32)
+    for person in _read():
+        stored = person.get("embedding")
+        if not stored:
+            continue
+        score = float(np.dot(vector, np.asarray(stored, dtype=np.float32)))
+        if score >= threshold:
+            return person
+    return None
 
 
 def rename(person_id: str, name: str) -> dict[str, Any] | None:
