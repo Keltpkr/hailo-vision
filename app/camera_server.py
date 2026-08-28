@@ -21,11 +21,11 @@ from .person_detector import PersonDetector
 CAMERAS = {
     0: os.getenv("CAMERA_0", "0"),
 }
-HEIGHT = int(os.getenv("CAMERA_HEIGHT", "972"))
-WIDTH = int(os.getenv("CAMERA_WIDTH", "1296"))
+HEIGHT = int(os.getenv("CAMERA_HEIGHT", "1944"))
+WIDTH = int(os.getenv("CAMERA_WIDTH", "2592"))
 FPS = int(os.getenv("CAMERA_FPS", "5"))
 USE_SUDO = os.getenv("CAMERA_USE_SUDO", "1") == "1"
-RESOLUTIONS = ("640x480", "1296x972", "1280x720", "1920x1080", "1920x1440")
+RESOLUTIONS = ("640x480", "1296x972", "1280x720", "1920x1080", "1920x1440", "2592x1944")
 FPS_OPTIONS = (5, 10, 15, 20, 30)
 settings = {
     "0": {"resolution": f"{WIDTH}x{HEIGHT}", "fps": FPS},
@@ -38,7 +38,7 @@ face_recognizer_lock = threading.Lock()
 detection_results: dict[str, dict[str, Any]] = {}
 detection_lock = threading.Lock()
 
-app = FastAPI(title="Hailo Camera Viewer", version="1.6.1")
+app = FastAPI(title="Hailo Camera Viewer", version="1.6.2")
 _cpu_previous: tuple[int, int] | None = None
 
 
@@ -293,7 +293,7 @@ def index() -> str:
 </head><body><h1>Caméras du Raspberry Pi</h1><p>Occupation CPU : <span id="cpu">--</span> %</p><main>
 <section><h2>Caméra 0 — OV5647</h2><label>Résolution <select data-camera="0" class="resolution"></select></label> <label>FPS <select data-camera="0" class="fps"></select></label><p class="status">Personnes : <span id="count-0">0</span> <span id="alert-0"></span></p><div class="camera-view"><img src="/camera/0" alt="Flux caméra 0"><canvas id="canvas-0"></canvas></div><div id="faces"></div></section>
 </main><script>
-const resolutions = ["640x480", "1296x972", "1280x720", "1920x1080", "1920x1440"];
+const resolutions = ["640x480", "1296x972", "1280x720", "1920x1080", "1920x1440", "2592x1944"];
 const fpsOptions = [5, 10, 15, 20, 30];
 async function init() {
   const current = await fetch('/health').then(r => r.json());
