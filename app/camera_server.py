@@ -39,7 +39,7 @@ face_recognizer_lock = threading.Lock()
 detection_results: dict[str, dict[str, Any]] = {}
 detection_lock = threading.Lock()
 
-app = FastAPI(title="Hailo Camera Viewer", version="1.6.9")
+app = FastAPI(title="Hailo Camera Viewer", version="1.7.0")
 _cpu_previous: tuple[int, int] | None = None
 NTFY_TOPIC = os.getenv("NTFY_TOPIC", "")
 NTFY_COOLDOWN_SECONDS = int(os.getenv("NTFY_COOLDOWN_SECONDS", "120"))
@@ -321,6 +321,12 @@ def active_capture(camera_id: int) -> CameraCapture:
             capture = CameraCapture(physical_camera, settings[str(camera_id)].copy())
             captures[physical_camera] = capture
         return capture
+
+
+@app.on_event("startup")
+def start_cameras() -> None:
+    for camera_id in CAMERAS:
+        active_capture(int(camera_id))
 
 
 def enrollment_worker(camera_id: int, name: str, capture: CameraCapture, state: dict[str, Any]) -> None:
