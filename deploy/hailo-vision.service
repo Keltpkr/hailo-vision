@@ -8,6 +8,8 @@ Type=simple
 User=root
 WorkingDirectory=/home/kelt_/hailo-vision
 Environment=CAMERA_USE_SUDO=0
+Environment=NTFY_TOPIC=hailo-vision-kelt-7f3a9c
+Environment=NTFY_COOLDOWN_SECONDS=120
 ExecStart=/home/kelt_/hailo-vision/.venv/bin/python -u -m uvicorn app.camera_server:app --host 192.168.1.44 --port 8090
 Restart=on-failure
 RestartSec=5

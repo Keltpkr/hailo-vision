@@ -5,6 +5,7 @@ import signal
 import subprocess
 import threading
 import time
+import urllib.request
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -38,8 +39,38 @@ face_recognizer_lock = threading.Lock()
 detection_results: dict[str, dict[str, Any]] = {}
 detection_lock = threading.Lock()
 
-app = FastAPI(title="Hailo Camera Viewer", version="1.6.8")
+app = FastAPI(title="Hailo Camera Viewer", version="1.6.9")
 _cpu_previous: tuple[int, int] | None = None
+NTFY_TOPIC = os.getenv("NTFY_TOPIC", "")
+NTFY_COOLDOWN_SECONDS = int(os.getenv("NTFY_COOLDOWN_SECONDS", "120"))
+_last_notification: dict[str, float] = {}
+_notification_lock = threading.Lock()
+
+
+def notify_person_detected(camera: str, names: list[str]) -> None:
+    if not NTFY_TOPIC:
+        return
+    now = time.monotonic()
+    with _notification_lock:
+        if now - _last_notification.get(camera, 0.0) < NTFY_COOLDOWN_SECONDS:
+            return
+        _last_notification[camera] = now
+    description = ", ".join(names) if names else "Personne non identifiée"
+
+    def send() -> None:
+        request = urllib.request.Request(
+            f"https://ntfy.sh/{NTFY_TOPIC}",
+            data=f"Personne détectée sur la caméra {int(camera)} : {description}".encode("utf-8"),
+            headers={"Title": "Hailo Vision", "Priority": "high", "Tags": "camera,eyes"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=5):
+                pass
+        except Exception as exc:
+            print(f"ntfy notification failed: {exc}", flush=True)
+
+    threading.Thread(target=send, name="ntfy-notification", daemon=True).start()
 
 
 def cpu_percent() -> float:
@@ -180,12 +211,15 @@ class CameraCapture:
                         detections[0]["person_id"] = person["id"]
                 with detection_lock:
                     previous = detection_results.get(self.camera, {})
+                    alert = len(detections) > 0 and previous.get("person_count", 0) == 0
                     detection_results[self.camera] = {
                         "camera": int(self.camera),
                         "person_count": len(detections),
-                        "alert": len(detections) > 0 and previous.get("person_count", 0) == 0,
+                        "alert": alert,
                         "detections": detections,
                     }
+                if alert:
+                    notify_person_detected(self.camera, [item.get("name", "Personne non identifiée") for item in detections])
             except Exception as exc:
                 with detection_lock:
                     detection_results[self.camera] = {
