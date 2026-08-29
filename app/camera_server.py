@@ -38,7 +38,7 @@ face_recognizer_lock = threading.Lock()
 detection_results: dict[str, dict[str, Any]] = {}
 detection_lock = threading.Lock()
 
-app = FastAPI(title="Hailo Camera Viewer", version="1.6.7")
+app = FastAPI(title="Hailo Camera Viewer", version="1.6.8")
 _cpu_previous: tuple[int, int] | None = None
 
 
